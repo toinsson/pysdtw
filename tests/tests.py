@@ -36,7 +36,7 @@ class TestCase(unittest.TestCase):
 
         import pysdtw
 
-        batch_size, seq_len_a, seq_len_b, dims = 10, 310, 270, 3
+        batch_size, seq_len_a, seq_len_b, dims = 1, 1400, 1500, 1
 
         A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
         Ac = A.detach().clone().requires_grad_(True)
@@ -48,14 +48,16 @@ class TestCase(unittest.TestCase):
         # forward
         res_leg = sdtw_leg(A.cuda(), B.cuda())
         res = sdtw(Ac.cuda(), B.cuda())
+        # print(res_leg, res)
         assert torch.allclose(res_leg, res)
 
         # # backward
-        # loss_leg = res_leg.sum()
-        # loss = res.sum()
-        # loss_leg.backward()
-        # loss.backward()
-        # assert torch.allclose(A.grad, Ac.grad)
+        loss_leg = res_leg.sum()
+        loss = res.sum()
+        loss_leg.backward()
+        loss.backward()
+        # print(A.grad, Ac.grad)
+        assert torch.allclose(A.grad, Ac.grad, atol=1e-2)
 
         return True
 

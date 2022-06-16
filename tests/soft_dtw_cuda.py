@@ -70,7 +70,7 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, R):
                 rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
                 softmin = -gamma * (math.log(rsum) + rmax)
                 R[b, i, j] = D[b, i - 1, j - 1] + softmin
-                # print(R[b, i, j])
+                # print(p, i, j, R[b, i, j])
 
         # Wait for other threads in this block
         cuda.syncthreads()
