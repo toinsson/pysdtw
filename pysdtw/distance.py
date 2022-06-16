@@ -35,3 +35,25 @@ def gpu_dist_matrix(mat):
 
     return out
 
+
+def pairwise_l2_squared(x, y):
+    x_norm = (x**2).sum(-1).unsqueeze(-1)
+    y_norm = (y**2).sum(-1).unsqueeze(-2)
+    dist = x_norm + y_norm - 2.0 * torch.bmm(x, y.mT)
+    return torch.clamp(dist, 0.0, np.inf)
+
+
+def pairwise_l2_squared_diag(x, y, theta):
+    x_norm = (theta * x**2).sum(1).view(-1, 1)
+    y_t = torch.transpose(y, 0, 1)
+    y_norm = (theta * y**2).sum(1).view(1, -1)
+    dist = x_norm + y_norm - 2.0 * torch.mm(theta * x, y_t)
+    return torch.clamp(dist, 0.0, np.inf)
+
+def pairwise_l2_squared_full(x, y, theta):
+    x_norm = (theta * x**2).sum(1).view(-1, 1)
+    y_t = torch.transpose(y, 0, 1)
+    y_norm = (theta * y**2).sum(1).view(1, -1)
+    dist = x_norm + y_norm - 2.0 * torch.mm(theta * x, y_t)
+    return torch.clamp(dist, 0.0, np.inf)
+

@@ -5,48 +5,44 @@ import math
 
 # ----------------------------------------------------------------------------------------------------------------------
 @cuda.jit
-def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, R):
+def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag, R):
     """
-    :param seq_len: The length of the sequence (both inputs are assumed to be of the same size)
-    :param n_passes: 2 * seq_len - 1 (The number of anti-diagonals)
     """
-    # Each block processes one pair of examples
-    b = cuda.blockIdx.x
-    # We have as many threads as seq_len, because the most number of threads we need
-    # is equal to the number of elements on the largest anti-diagonal
-    tid = cuda.threadIdx.x
-
-    # Compute I, J, the indices from [0, seq_len)
-
-    # The row index is always the same as tid
-    I = tid
-
     inv_gamma = 1.0 / gamma
 
+    b = cuda.blockIdx.x
+    thread_id = cuda.threadIdx.x
+
     # Go over each anti-diagonal. Only process threads that fall on the current on the anti-diagonal
-    for p in range(n_passes):
+    for a in range(n_antidiag):
 
-        # The index is actually 'p - tid' but need to force it in-bounds
-        J = max(0, min(p - tid, max_j - 1))
+        for p in range(n_passes):
 
-        # For simplicity, we define i, j which start from 1 (offset from I, J)
-        i = I + 1
-        j = J + 1
+            J = thread_id + p*MAX_THREADS_PER_BLOCK
+            I = a - thread_id - p*MAX_THREADS_PER_BLOCK
 
-        # Only compute if element[i, j] is on the current anti-diagonal, and also is within bounds
-        if I + J == p and (I < max_i and J < max_j):
-            # Don't compute if outside bandwidth
-            if not (abs(i - j) > bandwidth > 0):
-                r0 = -R[b, i - 1, j - 1] * inv_gamma
-                r1 = -R[b, i - 1, j] * inv_gamma
-                r2 = -R[b, i, j - 1] * inv_gamma
-                rmax = max(max(r0, r1), r2)
-                rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
-                softmin = -gamma * (math.log(rsum) + rmax)
-                R[b, i, j] = D[b, i - 1, j - 1] + softmin
+            i = I + 1
+            j = J + 1
+
+            # Only compute if element[i, j] is on the current anti-diagonal, and also is within bounds
+            if (I + J == a) and (I < max_i and J < max_j) and (I > -1 and J > -1):
+
+                # print(a, i, j)
+
+                # Don't compute if outside bandwidth
+                if not (abs(i - j) > bandwidth > 0):
+                    r0 = -R[b, i - 1, j - 1] * inv_gamma
+                    r1 = -R[b, i - 1, j] * inv_gamma
+                    r2 = -R[b, i, j - 1] * inv_gamma
+                    rmax = max(max(r0, r1), r2)
+                    rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
+                    softmin = -gamma * (math.log(rsum) + rmax)
+                    R[b, i, j] = D[b, i - 1, j - 1] + softmin
+                    # print(R[b, i, j])
 
         # Wait for other threads in this block
         cuda.syncthreads()
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 @cuda.jit
@@ -85,6 +81,8 @@ def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, max_i, max_j, n_pa
         cuda.syncthreads()
 
 # ----------------------------------------------------------------------------------------------------------------------
+MAX_THREADS_PER_BLOCK = 1024
+
 class _SoftDTWCUDA(Function):
     """
     CUDA implementation is inspired by the diagonal one proposed in https://ieeexplore.ieee.org/document/8400444:
@@ -101,9 +99,12 @@ class _SoftDTWCUDA(Function):
         B = D.shape[0]
         N = D.shape[1]
         M = D.shape[2]
-        threads_per_block = N #max(N, M)
-        # n_passes = 2 * threads_per_block - 1
-        n_passes = M + N - 1
+
+        T = min(min(N, M), MAX_THREADS_PER_BLOCK)
+        n_passes = min(N, M) // MAX_THREADS_PER_BLOCK + 1
+        n_antidiag = M + N - 1
+
+        print(T, n_passes, n_antidiag)
 
         # Prepare the output array
         R = torch.ones((B, N + 2, M + 2), device=dev, dtype=dtype) * math.inf
@@ -112,9 +113,11 @@ class _SoftDTWCUDA(Function):
         # Run the CUDA kernel.
         # Set CUDA's grid size to be equal to the batch size (every CUDA block processes one sample pair)
         # Set the CUDA block size to be equal to the length of the longer sequence (equal to the size of the largest diagonal)
-        compute_softdtw_cuda[B, threads_per_block](cuda.as_cuda_array(D.detach()),
-                                                   gamma.item(), bandwidth.item(), N, M, n_passes,
-                                                   cuda.as_cuda_array(R))
+        compute_softdtw_cuda[B, T](
+            cuda.as_cuda_array(D.detach()), gamma.item(), bandwidth.item(),
+            N, M, n_passes, n_antidiag,
+            cuda.as_cuda_array(R))
+
         ctx.save_for_backward(D, R.clone(), gamma, bandwidth)
         return R[:, -2, -2]
 

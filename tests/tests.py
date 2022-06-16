@@ -1,90 +1,13 @@
-# ----------------------------------------------------------------------------------------------------------------------
-def timed_run(a, b, sdtw):
-    """
-    Runs a and b through sdtw, and times the forward and backward passes.
-    Assumes that a requires gradients.
-    :return: timing, forward result, backward result
-    """
-    from timeit import default_timer as timer
-
-    # Forward pass
-    start = timer()
-    forward = sdtw(a, b)
-    end = timer()
-    t = end - start
-
-    grad_outputs = torch.ones_like(forward)
-
-    # Backward
-    start = timer()
-    grads = torch.autograd.grad(forward, a, grad_outputs=grad_outputs)[0]
-    end = timer()
-
-    # Total time
-    t += end - start
-
-    return t, forward, grads
-
-# ----------------------------------------------------------------------------------------------------------------------
-def profile(batch_size, seq_len_a, seq_len_b, dims, tol_backward):
-    sdtw = SoftDTW(False, gamma=1.0, normalize=False)
-    sdtw_cuda = SoftDTW(True, gamma=1.0, normalize=False)
-    n_iters = 6
-
-    print("Profiling forward() + backward() times for batch_size={}, seq_len_a={}, seq_len_b={}, dims={}...".format(batch_size, seq_len_a, seq_len_b, dims))
-
-    times_cpu = []
-    times_gpu = []
-
-    for i in range(n_iters):
-        a_cpu = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
-        b_cpu = torch.rand((batch_size, seq_len_b, dims))
-        a_gpu = a_cpu.cuda()
-        b_gpu = b_cpu.cuda()
-
-        # GPU
-        t_gpu, forward_gpu, backward_gpu = timed_run(a_gpu, b_gpu, sdtw_cuda)
-
-        # CPU
-        t_cpu, forward_cpu, backward_cpu = timed_run(a_cpu, b_cpu, sdtw)
-
-        # Verify the results
-        assert torch.allclose(forward_cpu, forward_gpu.cpu())
-        assert torch.allclose(backward_cpu, backward_gpu.cpu(), atol=tol_backward)
-
-        if i > 0:  # Ignore the first time we run, in case this is a cold start (because timings are off at a cold start of the script)
-            times_cpu += [t_cpu]
-            times_gpu += [t_gpu]
-
-    # Average and log
-    avg_cpu = np.mean(times_cpu)
-    avg_gpu = np.mean(times_gpu)
-    print("\tCPU:     ", avg_cpu)
-    print("\tGPU:     ", avg_gpu)
-    print("\tSpeedup: ", avg_cpu / avg_gpu)
-    print()
-
-
-# ----------------------------------------------------------------------------------------------------------------------
-# if __name__ == "__main__":
-#     from timeit import default_timer as timer
-
-#     torch.manual_seed(1234)
-
-#     profile(128, 17, 15, 2, tol_backward=1e-6)
-#     profile(512, 64, 64, 2, tol_backward=1e-4)
-#     profile(512, 256, 256, 2, tol_backward=1e-3)
-
-
-
 import torch
 import unittest
 
-class TestStringMethods(unittest.TestCase):
+# run with
+# python -m unittest tests.tests.TestCase.test_equal_legacy_gpu
+
+class TestCase(unittest.TestCase):
 
     def test_import(self):
         import pysdtw
-        sdtw = pysdtw.SoftDTW(True)
         return True
 
     def test_import_cpu(self):
@@ -97,37 +20,98 @@ class TestStringMethods(unittest.TestCase):
         sdtw = pysdtw.SoftDTW(True)
         return True
 
-    def test_equal(self):
+    def test_import_legacy(self):
+        import sys
+        sys.path.append("tests")
+        import soft_dtw_cuda
+        return True
+
+    def test_equal_legacy_gpu(self):
+        """Test whether the pysdtw produces the same results both in forward and
+        backward as the legacy code.
+        """
+        import sys
+        sys.path.append("tests")
+        import soft_dtw_cuda
+
+        import pysdtw
+
+        batch_size, seq_len_a, seq_len_b, dims = 10, 1310, 1270, 3
+
+        A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
+        Ac = A.detach().clone().requires_grad_(True)
+        B = torch.rand((batch_size, seq_len_b, dims))
+
+        sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0, normalize=False)
+        sdtw = pysdtw.SoftDTW(gamma=1.0, normalize=False)
+
+        # forward
+        res_leg = sdtw_leg(A.cuda(), B.cuda())
+        res = sdtw(Ac.cuda(), B.cuda())
+        assert torch.allclose(res_leg, res)
+
+        # # backward
+        # loss_leg = res_leg.sum()
+        # loss = res.sum()
+        # loss_leg.backward()
+        # loss.backward()
+        # assert torch.allclose(A.grad, Ac.grad)
+
+        return True
+
+    def test_equal_legacy_distance(self):
+        """Tests equality for a new distance function.
+        """
+        import sys
+        sys.path.append("tests")
+        import soft_dtw_cuda
+
+        import pysdtw
 
         batch_size, seq_len_a, seq_len_b, dims = 10, 512, 1023, 15
 
+        A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
+        Ac = A.detach().clone().requires_grad_(True)
+        B = torch.rand((batch_size, seq_len_b, dims))
+
+        sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0, normalize=False)
+
+
+        def pairwise_l2_squared(x, y):
+            x_norm = (x**2).sum(-1).unsqueeze(-1)
+            y_norm = (y**2).sum(-1).unsqueeze(-2)
+            dist = x_norm + y_norm - 2.0 * torch.bmm(x, y.mT)
+            return torch.clamp(dist, 0.0, torch.inf)
+
+        sdtw = pysdtw.SoftDTW(gamma=1.0, normalize=False, dist_func=pairwise_l2_squared)
+
+        # forward
+        res_leg = sdtw_leg(A.cuda(), B.cuda())
+        res = sdtw(Ac.cuda(), B.cuda())
+        assert torch.allclose(res_leg, res)
+
+
+
+
+    def test_equal_gpu_cpu(self):
+        import pysdtw
+
+        batch_size, seq_len_a, seq_len_b, dims = 10, 512, 1023, 15
         a_cpu = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
         b_cpu = torch.rand((batch_size, seq_len_b, dims))
         a_gpu = a_cpu.cuda()
         b_gpu = b_cpu.cuda()
 
-        import pysdtw
-        sdtw_cuda = pysdtw.SoftDTW(True)
-        sdtw_cpu = pysdtw.SoftDTW(False)
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        sdtw_cpu = pysdtw.SoftDTW(use_cuda=False)
 
         forward_cpu = sdtw_cpu(a_cpu, b_cpu)
         forward_gpu = sdtw_cuda(a_gpu, b_gpu)
 
         assert torch.allclose(forward_cpu, forward_gpu.cpu())
 
-    # def test_upper(self):
-    #     self.assertEqual('foo'.upper(), 'FOO')
 
-    # def test_isupper(self):
-    #     self.assertTrue('FOO'.isupper())
-    #     self.assertFalse('Foo'.isupper())
 
-    # def test_split(self):
-    #     s = 'hello world'
-    #     self.assertEqual(s.split(), ['hello', 'world'])
-    #     # check that s.split fails when the separator is not a string
-    #     with self.assertRaises(TypeError):
-    #         s.split(2)
 
 if __name__ == '__main__':
     unittest.main()

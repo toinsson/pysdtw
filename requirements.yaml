@@ -1,0 +1,29 @@
+# conda env create --file requirements.yaml
+
+name: pysdtw
+
+dependencies:
+  - python=3.9
+  - jupyterlab
+  - ipywidgets
+  - matplotlib
+  - numpy
+  - pandas
+  - scipy
+
+  - pytorch::pytorch
+  - numba
+
+  # soft-dtw blondel - needs to be manually installed
+  # - cython
+  # - scikit-learn
+
+  # pytorch
+  # - pytorch::torchvision
+  # - pytorch::torchaudio
+
+  # lightning
+  # - conda-forge::pytorch-lightning
+
+  # - pip:
+  #   - fastdtw

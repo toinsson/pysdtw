@@ -11,7 +11,7 @@ class SoftDTW(torch.nn.Module):
     The soft DTW implementation that optionally supports CUDA
     """
 
-    def __init__(self, use_cuda, gamma=1.0, normalize=False, bandwidth=None, dist_func=None):
+    def __init__(self, gamma=1.0, normalize=False, bandwidth=None, dist_func=None, use_cuda=True):
         """
         Initializes a new instance using the supplied parameters
         :param use_cuda: Flag indicating whether the CUDA implementation should be used
@@ -45,9 +45,9 @@ class SoftDTW(torch.nn.Module):
 
         use_cuda = self.use_cuda
 
-        if use_cuda and (lx > 1024 or ly > 1024):  # We should be able to spawn enough threads in CUDA
-                print("SoftDTW: Cannot use CUDA because the sequence length > 1024 (the maximum block size supported by CUDA)")
-                use_cuda = False
+        # if use_cuda and (lx > 1024 or ly > 1024):  # We should be able to spawn enough threads in CUDA
+        #     print("SoftDTW: Cannot use CUDA because the sequence length > 1024 (the maximum block size supported by CUDA)")
+        #     use_cuda = False
 
         # Finally, return the correct function
         return _SoftDTWCUDA.apply if use_cuda else _SoftDTW.apply
@@ -75,6 +75,7 @@ class SoftDTW(torch.nn.Module):
         # Check the inputs and get the correct implementation
         func_dtw = self._get_func_dtw(X, Y)
 
+        # this needs to be split for memory reasons
         if self.normalize:
             # Stack everything up and run
             x = torch.cat([X, X, Y])
@@ -83,27 +84,7 @@ class SoftDTW(torch.nn.Module):
             out = func_dtw(D, self.gamma, self.bandwidth)
             out_xy, out_xx, out_yy = torch.split(out, X.shape[0])
             return out_xy - 1 / 2 * (out_xx + out_yy)
+
         else:
             D_xy = self.dist_func(X, Y)
             return func_dtw(D_xy, self.gamma, self.bandwidth)
-
-
-def pairwise_l2_squared(x, y, theta):
-    '''
-    https://discuss.pytorch.org/t/efficient-distance-matrix-computation/9065/2
-
-    Input: x is an Nxd matrix
-           y is an Mxd matrix
-    Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
-            if y is not given then use 'y=x'.
-    i.e. dist[i,j] = ||x[i,:]-y[j,:]||^2
-    '''
-    x_norm = (theta * x**2).sum(1).view(-1, 1)
-    y_t = torch.transpose(y, 0, 1)
-    y_norm = (theta * y**2).sum(1).view(1, -1)
-    dist = x_norm + y_norm - 2.0 * torch.mm(theta * x, y_t)
-    # Ensure diagonal is zero if x=y
-    # if y is None:
-    #     dist = dist - torch.diag(dist.diag)
-    return torch.clamp(dist, 0.0, np.inf)
-
