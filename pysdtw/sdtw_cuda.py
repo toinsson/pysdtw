@@ -27,8 +27,6 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag
             # Only compute if element[i, j] is on the current anti-diagonal, and also is within bounds
             if (I + J == a) and (I < max_i and J < max_j) and (I > -1 and J > -1):
 
-                # print(a, i, j)
-
                 # Don't compute if outside bandwidth
                 if not (abs(i - j) > bandwidth > 0):
                     r0 = -R[b, i - 1, j - 1] * inv_gamma
@@ -38,9 +36,8 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag
                     rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
                     softmin = -gamma * (math.log(rsum) + rmax)
                     R[b, i, j] = D[b, i - 1, j - 1] + softmin
-                    # print(R[b, i, j])
 
-        # Wait for other threads in this block
+        # Wait for other threads on this antidiagonal
         cuda.syncthreads()
 
 
@@ -103,8 +100,6 @@ class _SoftDTWCUDA(Function):
         T = min(min(N, M), MAX_THREADS_PER_BLOCK)
         n_passes = min(N, M) // MAX_THREADS_PER_BLOCK + 1
         n_antidiag = M + N - 1
-
-        print(T, n_passes, n_antidiag)
 
         # Prepare the output array
         R = torch.ones((B, N + 2, M + 2), device=dev, dtype=dtype) * math.inf

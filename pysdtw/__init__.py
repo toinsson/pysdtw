@@ -4,11 +4,11 @@ from numba import cuda
 
 from .sdtw_cuda import _SoftDTWCUDA
 from .sdtw_cpu import _SoftDTW
+from .distance import pairwise_l2_squared
 
 # ----------------------------------------------------------------------------------------------------------------------
 class SoftDTW(torch.nn.Module):
     """
-    The soft DTW implementation that optionally supports CUDA
     """
 
     def __init__(self, gamma=1.0, normalize=False, bandwidth=None, dist_func=None, use_cuda=True):
@@ -22,58 +22,28 @@ class SoftDTW(torch.nn.Module):
         :param dist_func: Optional point-wise distance function to use. If 'None', then a default Euclidean distance function will be used.
         """
         super(SoftDTW, self).__init__()
-        self.normalize = normalize
         self.gamma = gamma
+        self.normalize = normalize
         self.bandwidth = 0 if bandwidth is None else float(bandwidth)
+        self.dist_func = dist_func if dist_func is not None else pairwise_l2_squared
         self.use_cuda = use_cuda
+        self.func_dtw = _SoftDTWCUDA.apply if use_cuda else _SoftDTW.apply
 
-        # Set the distance function
-        if dist_func is not None:
-            self.dist_func = dist_func
-        else:
-            self.dist_func = SoftDTW._euclidean_dist_func
-
-    def _get_func_dtw(self, x, y):
-        """
-        Checks the inputs and selects the proper implementation to use.
+    def check_input(self, x, y):
+        """Checks the inputs. Batch size must be the same.
         """
         bx, lx, dx = x.shape
         by, ly, dy = y.shape
-        # Make sure the dimensions match
-        assert bx == by  # Equal batch sizes
-        assert dx == dy  # Equal feature dimensions
-
-        use_cuda = self.use_cuda
-
-        # if use_cuda and (lx > 1024 or ly > 1024):  # We should be able to spawn enough threads in CUDA
-        #     print("SoftDTW: Cannot use CUDA because the sequence length > 1024 (the maximum block size supported by CUDA)")
-        #     use_cuda = False
-
-        # Finally, return the correct function
-        return _SoftDTWCUDA.apply if use_cuda else _SoftDTW.apply
-
-    @staticmethod
-    def _euclidean_dist_func(x, y):
-        """
-        Calculates the Euclidean distance between each element in x and y per timestep
-        """
-        n = x.size(1)
-        m = y.size(1)
-        d = x.size(2)
-        x = x.unsqueeze(2).expand(-1, n, m, d)
-        y = y.unsqueeze(1).expand(-1, n, m, d)
-        return torch.pow(x - y, 2).sum(3)
+        assert bx == by
+        assert dx == dy
 
     def forward(self, X, Y):
-        """
-        Compute the soft-DTW value between X and Y
+        """Compute the soft-DTW value between X and Y
         :param X: One batch of examples, batch_size x seq_len x dims
         :param Y: The other batch of examples, batch_size x seq_len x dims
         :return: The computed results
         """
-
-        # Check the inputs and get the correct implementation
-        func_dtw = self._get_func_dtw(X, Y)
+        self.check_input(X, Y)
 
         # this needs to be split for memory reasons
         if self.normalize:
@@ -81,10 +51,10 @@ class SoftDTW(torch.nn.Module):
             x = torch.cat([X, X, Y])
             y = torch.cat([Y, X, Y])
             D = self.dist_func(x, y)
-            out = func_dtw(D, self.gamma, self.bandwidth)
+            out = self.func_dtw(D, self.gamma, self.bandwidth)
             out_xy, out_xx, out_yy = torch.split(out, X.shape[0])
             return out_xy - 1 / 2 * (out_xx + out_yy)
 
         else:
             D_xy = self.dist_func(X, Y)
-            return func_dtw(D_xy, self.gamma, self.bandwidth)
+            return self.func_dtw(D_xy, self.gamma, self.bandwidth)
