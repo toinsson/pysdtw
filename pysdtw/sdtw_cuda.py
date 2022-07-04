@@ -87,8 +87,7 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag
             J = thread_id + p*MAX_THREADS_PER_BLOCK
 
             if (I + J == a) and (I < max_i and J < max_j) and (I > -1):
-                i = I + 1
-                j = J + 1
+                i, j = I + 1, J + 1
 
                 # Sakoe-Chiba band for non-squared matrix
                 i_sc, j_sc = i, j
@@ -103,7 +102,6 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag
                     rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
                     softmin = -gamma * (math.log(rsum) + rmax)
                     R[b, i, j] = D[b, i - 1, j - 1] + softmin
-                    # print(a, i, j, R[b, i, j])
 
         cuda.syncthreads()
 
@@ -121,8 +119,7 @@ def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, max_i, max_j, n_pa
             J = thread_id + p*MAX_THREADS_PER_BLOCK
 
             if (I + J == rev_a) and (I < max_i and J < max_j) and (I > -1):
-                i = I + 1
-                j = J + 1
+                i, j = I + 1, J + 1
 
                 if math.isinf(R[k, i, j]):
                     R[k, i, j] = -math.inf

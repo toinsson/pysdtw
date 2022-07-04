@@ -1,7 +1,8 @@
 import torch
 import unittest
 
-# run with
+# run with:
+# python -m unittest 
 # python -m unittest tests.tests.TestCase.test_equal_legacy_gpu
 
 class TestCase(unittest.TestCase):
@@ -33,7 +34,6 @@ class TestCase(unittest.TestCase):
         import sys
         sys.path.append("tests")
         import soft_dtw_cuda
-
         import pysdtw
 
         batch_size, seq_len_a, seq_len_b, dims = 1, 1400, 1500, 1
@@ -48,15 +48,13 @@ class TestCase(unittest.TestCase):
         # forward
         res_leg = sdtw_leg(A.cuda(), B.cuda())
         res = sdtw(Ac.cuda(), B.cuda())
-        # print(res_leg, res)
         assert torch.allclose(res_leg, res)
 
-        # # backward
+        # backward
         loss_leg = res_leg.sum()
         loss = res.sum()
         loss_leg.backward()
         loss.backward()
-        # print(A.grad, Ac.grad)
         assert torch.allclose(A.grad, Ac.grad, atol=1e-2)
 
         return True
@@ -78,7 +76,6 @@ class TestCase(unittest.TestCase):
 
         sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0, normalize=False)
 
-
         def pairwise_l2_squared(x, y):
             x_norm = (x**2).sum(-1).unsqueeze(-1)
             y_norm = (y**2).sum(-1).unsqueeze(-2)
@@ -91,9 +88,6 @@ class TestCase(unittest.TestCase):
         res_leg = sdtw_leg(A.cuda(), B.cuda())
         res = sdtw(Ac.cuda(), B.cuda())
         assert torch.allclose(res_leg, res)
-
-
-
 
     def test_equal_gpu_cpu(self):
         import pysdtw
@@ -111,8 +105,6 @@ class TestCase(unittest.TestCase):
         forward_gpu = sdtw_cuda(a_gpu, b_gpu)
 
         assert torch.allclose(forward_cpu, forward_gpu.cpu())
-
-
 
 
 if __name__ == '__main__':

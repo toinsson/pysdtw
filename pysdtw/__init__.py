@@ -47,7 +47,7 @@ class SoftDTW(torch.nn.Module):
         Returns: 
             The soft-DTW distance between X and Y of size batch_size.
         """
-        self.check_input(X, Y)
+        self._check_input(X, Y)
 
         if not self.normalize:
             D_xy = self.dist_func(X, Y)
