@@ -1,25 +1,25 @@
+# Licensed under the MIT License, see LICENSE for details.
+
 import torch
 import torch.cuda
 from numba import cuda
 
-from .sdtw_cuda import _SoftDTWCUDA
-from .sdtw_cpu import _SoftDTW
+from .sdtw_cuda import SoftDTWcuda
+from .sdtw_cpu import SoftDTWcpu
 from .distance import pairwise_l2_squared
 
-# ----------------------------------------------------------------------------------------------------------------------
-class SoftDTW(torch.nn.Module):
-    """
-    """
 
-    def __init__(self, gamma=1.0, normalize=False, bandwidth=None, dist_func=None, use_cuda=True):
+class SoftDTW(torch.nn.Module):
+    """Torch implementation of the Soft-DTW algorithm.
+    """
+    def __init__(self, gamma=1.0, dist_func=None, use_cuda=True, bandwidth=None, normalize=False):
         """
-        Initializes a new instance using the supplied parameters
-        :param use_cuda: Flag indicating whether the CUDA implementation should be used
-        :param gamma: sDTW's gamma parameter
-        :param normalize: Flag indicating whether to perform normalization
-                          (as discussed in https://github.com/mblondel/soft-dtw/issues/10#issuecomment-383564790)
-        :param bandwidth: Sakoe-Chiba bandwidth for pruning. Passing 'None' will disable pruning.
-        :param dist_func: Optional point-wise distance function to use. If 'None', then a default Euclidean distance function will be used.
+        Args:
+            gamma (float): Regularization parameter, lower is less smoothed (closer to true DTW).
+            dist_func (func): Distance function used in pointwise computation, default to L2 squared.
+            use_cuda (bool): Flag to use GPU, default to True.
+            normalize (bool): Flag to normalize input, default to True.
+            bandwidth (int): Sakoe-Chiba bandwith parameter, default to 0.
         """
         super(SoftDTW, self).__init__()
         self.gamma = gamma
@@ -27,10 +27,10 @@ class SoftDTW(torch.nn.Module):
         self.bandwidth = 0 if bandwidth is None else float(bandwidth)
         self.dist_func = dist_func if dist_func is not None else pairwise_l2_squared
         self.use_cuda = use_cuda
-        self.func_dtw = _SoftDTWCUDA.apply if use_cuda else _SoftDTW.apply
+        self.func_dtw = SoftDTWcuda.apply if use_cuda else SoftDTWcpu.apply
 
-    def check_input(self, x, y):
-        """Checks the inputs. Batch size must be the same.
+    def _check_input(self, x, y):
+        """Checks the inputs. Batch size and outer dimension must be the same.
         """
         bx, lx, dx = x.shape
         by, ly, dy = y.shape
@@ -38,23 +38,26 @@ class SoftDTW(torch.nn.Module):
         assert dx == dy
 
     def forward(self, X, Y):
-        """Compute the soft-DTW value between X and Y
-        :param X: One batch of examples, batch_size x seq_len x dims
-        :param Y: The other batch of examples, batch_size x seq_len x dims
-        :return: The computed results
+        """Compute the soft-DTW value between X and Y.
+        
+        Args:
+            X (tensor): input of size batch_size x seq_len_x x dims
+            Y (tensor): input of size batch_size x seq_len_y x dims
+        
+        Returns: 
+            The soft-DTW distance between X and Y of size batch_size.
         """
         self.check_input(X, Y)
 
-        # this needs to be split for memory reasons
-        if self.normalize:
-            # Stack everything up and run
+        if not self.normalize:
+            D_xy = self.dist_func(X, Y)
+            return self.func_dtw(D_xy, self.gamma, self.bandwidth)
+
+        # TODO: this should be checked for memory
+        else:
             x = torch.cat([X, X, Y])
             y = torch.cat([Y, X, Y])
             D = self.dist_func(x, y)
             out = self.func_dtw(D, self.gamma, self.bandwidth)
             out_xy, out_xx, out_yy = torch.split(out, X.shape[0])
             return out_xy - 1 / 2 * (out_xx + out_yy)
-
-        else:
-            D_xy = self.dist_func(X, Y)
-            return self.func_dtw(D_xy, self.gamma, self.bandwidth)
