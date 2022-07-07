@@ -10,17 +10,19 @@ from .sdtw_cuda import SoftDTWcuda
 from .sdtw_cpu import SoftDTWcpu
 from .distance import pairwise_l2_squared
 
+T = torch.Tensor
+PS = rnn.PackedSequence
 
 class SoftDTW(torch.nn.Module):
     """Torch implementation of the Soft-DTW algorithm.
     """
     def __init__(
-            self,
-            gamma: float = 1.0,
-            dist_func: Callable = None,
-            use_cuda: bool = True,
-            bandwidth: int = None,
-            ):
+        self,
+        gamma: float = 1.0,
+        dist_func: Callable = None,
+        use_cuda: bool = True,
+        bandwidth: int = None,
+        ):
         """
         Args:
             gamma (float): Regularization parameter, lower is less smoothed (closer to true DTW).
@@ -35,10 +37,7 @@ class SoftDTW(torch.nn.Module):
         self.use_cuda = use_cuda
         self.dtw_func = SoftDTWcuda.apply if use_cuda else SoftDTWcpu.apply
 
-    def forward(self,
-                X: Union[torch.Tensor, rnn.PackedSequence],
-                Y: Union[torch.Tensor, rnn.PackedSequence],
-            ):
+    def forward(self, X: Union[T, PS], Y: Union[T, PS]):
         """Compute the soft-DTW value between X and Y.
 
         Args:
@@ -55,7 +54,7 @@ class SoftDTW(torch.nn.Module):
         return dtw
 
 
-def _check_input(x: Union[torch.Tensor, rnn.PackedSequence], y: Union[torch.Tensor, rnn.PackedSequence]):
+def _check_input(x: Union[T, PS], y: Union[T, PS]) -> Tuple[T, T, T]:
     """Checks the inputs. Batch size and outer dimension must be the same.
     """
     x, x_len, x_packed = _unpack_sequence(x)
@@ -69,7 +68,7 @@ def _check_input(x: Union[torch.Tensor, rnn.PackedSequence], y: Union[torch.Tens
 
     return x, y, xy_len
 
-def _unpack_sequence(x: Union[torch.Tensor, rnn.PackedSequence]) -> Tuple[torch.Tensor, torch.Tensor, bool]:
+def _unpack_sequence(x: Union[T, PS]) -> Tuple[T, T, bool]:
     if isinstance(x, rnn.PackedSequence):
         x, x_len = rnn.pad_packed_sequence(x, batch_first=True)
         packed = True
