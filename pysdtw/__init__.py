@@ -1,8 +1,10 @@
 # Licensed under the MIT License, see LICENSE for details.
-
+"""Torch implementation of the Soft-DTW algorithm. Include separate modules for
+CPU and GPU computation and a dedicated module for distance functions.
+"""
 import torch
-import torch.cuda
-from numba import cuda
+import torch.nn.utils.rnn as rnn
+from typing import Callable, Union, Tuple
 
 from .sdtw_cuda import SoftDTWcuda
 from .sdtw_cpu import SoftDTWcpu
@@ -12,52 +14,68 @@ from .distance import pairwise_l2_squared
 class SoftDTW(torch.nn.Module):
     """Torch implementation of the Soft-DTW algorithm.
     """
-    def __init__(self, gamma=1.0, dist_func=None, use_cuda=True, bandwidth=None, normalize=False):
+    def __init__(
+            self,
+            gamma: float = 1.0,
+            dist_func: Callable = None,
+            use_cuda: bool = True,
+            bandwidth: int = None,
+            ):
         """
         Args:
             gamma (float): Regularization parameter, lower is less smoothed (closer to true DTW).
             dist_func (func): Distance function used in pointwise computation, default to L2 squared.
             use_cuda (bool): Flag to use GPU, default to True.
-            normalize (bool): Flag to normalize input, default to True.
-            bandwidth (int): Sakoe-Chiba bandwith parameter, default to 0.
+            bandwidth (int): Sakoe-Chiba type bandwith parameter, default to 0.
         """
         super(SoftDTW, self).__init__()
         self.gamma = gamma
-        self.normalize = normalize
         self.bandwidth = 0 if bandwidth is None else float(bandwidth)
         self.dist_func = dist_func if dist_func is not None else pairwise_l2_squared
         self.use_cuda = use_cuda
-        self.func_dtw = SoftDTWcuda.apply if use_cuda else SoftDTWcpu.apply
+        self.dtw_func = SoftDTWcuda.apply if use_cuda else SoftDTWcpu.apply
 
-    def _check_input(self, x, y):
-        """Checks the inputs. Batch size and outer dimension must be the same.
-        """
-        bx, lx, dx = x.shape
-        by, ly, dy = y.shape
-        assert bx == by
-        assert dx == dy
-
-    def forward(self, X, Y):
+    def forward(self,
+                X: Union[torch.Tensor, rnn.PackedSequence],
+                Y: Union[torch.Tensor, rnn.PackedSequence],
+            ):
         """Compute the soft-DTW value between X and Y.
-        
+
         Args:
-            X (tensor): input of size batch_size x seq_len_x x dims
-            Y (tensor): input of size batch_size x seq_len_y x dims
-        
-        Returns: 
+            X (tensor or PackedSequence): input of size batch_size x seq_len_x x dims
+            Y (tensor or PackedSequence): input of size batch_size x seq_len_y x dims
+
+        Returns:
             The soft-DTW distance between X and Y of size batch_size.
         """
-        self._check_input(X, Y)
+        X, Y, XY_lengths = _check_input(X, Y)
+        XY_D = self.dist_func(X, Y)
+        dtw = self.dtw_func(XY_D, lengths=XY_lengths, gamma=self.gamma, bandwidth=self.bandwidth)
 
-        if not self.normalize:
-            D_xy = self.dist_func(X, Y)
-            return self.func_dtw(D_xy, self.gamma, self.bandwidth)
+        return dtw
 
-        # TODO: this should be checked for memory
-        else:
-            x = torch.cat([X, X, Y])
-            y = torch.cat([Y, X, Y])
-            D = self.dist_func(x, y)
-            out = self.func_dtw(D, self.gamma, self.bandwidth)
-            out_xy, out_xx, out_yy = torch.split(out, X.shape[0])
-            return out_xy - 1 / 2 * (out_xx + out_yy)
+
+def _check_input(x: Union[torch.Tensor, rnn.PackedSequence], y: Union[torch.Tensor, rnn.PackedSequence]):
+    """Checks the inputs. Batch size and outer dimension must be the same.
+    """
+    x, x_len, x_packed = _unpack_sequence(x)
+    y, y_len, y_packed = _unpack_sequence(y)
+    xy_len = torch.stack([x_len, y_len]).T if x_packed or y_packed else None
+
+    bx, _, dx = x.shape
+    by, _, dy = y.shape
+    assert bx == by
+    assert dx == dy
+
+    return x, y, xy_len
+
+def _unpack_sequence(x: Union[torch.Tensor, rnn.PackedSequence]) -> Tuple[torch.Tensor, torch.Tensor, bool]:
+    if isinstance(x, rnn.PackedSequence):
+        x, x_len = rnn.pad_packed_sequence(x, batch_first=True)
+        packed = True
+    else:
+        u, v = x.shape[:2]
+        x_len = torch.tensor([u]).expand(v)
+        packed = False
+
+    return x, x_len, packed

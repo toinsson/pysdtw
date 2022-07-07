@@ -2,7 +2,7 @@ import torch
 import unittest
 
 # run with:
-# python -m unittest 
+# python -m unittest
 # python -m unittest tests.tests.TestCase.test_equal_legacy_gpu
 
 class TestCase(unittest.TestCase):
@@ -42,8 +42,8 @@ class TestCase(unittest.TestCase):
         Ac = A.detach().clone().requires_grad_(True)
         B = torch.rand((batch_size, seq_len_b, dims))
 
-        sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0, normalize=False)
-        sdtw = pysdtw.SoftDTW(gamma=1.0, normalize=False)
+        sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0)
+        sdtw = pysdtw.SoftDTW(gamma=1.0)
 
         # forward
         res_leg = sdtw_leg(A.cuda(), B.cuda())
@@ -74,7 +74,7 @@ class TestCase(unittest.TestCase):
         Ac = A.detach().clone().requires_grad_(True)
         B = torch.rand((batch_size, seq_len_b, dims))
 
-        sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0, normalize=False)
+        sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0)
 
         def pairwise_l2_squared(x, y):
             x_norm = (x**2).sum(-1).unsqueeze(-1)
@@ -82,7 +82,7 @@ class TestCase(unittest.TestCase):
             dist = x_norm + y_norm - 2.0 * torch.bmm(x, y.mT)
             return torch.clamp(dist, 0.0, torch.inf)
 
-        sdtw = pysdtw.SoftDTW(gamma=1.0, normalize=False, dist_func=pairwise_l2_squared)
+        sdtw = pysdtw.SoftDTW(gamma=1.0, dist_func=pairwise_l2_squared)
 
         # forward
         res_leg = sdtw_leg(A.cuda(), B.cuda())

@@ -13,16 +13,19 @@ class SoftDTWcuda(Function):
     """CUDA implementation of the Soft-DTW algorithm.
     """
     @staticmethod
-    def forward(ctx, D, gamma, bandwidth):
+    def forward(ctx, D, lengths=None, gamma=1.0, bandwidth=0):
         dev = D.device
         dtype = D.dtype
         gamma = torch.cuda.FloatTensor([gamma])
         bandwidth = torch.cuda.FloatTensor([bandwidth])
 
         B = D.shape[0]
-        M = D.shape[1]
-        N = D.shape[2]
+        if lengths is None:
+            MN = torch.tensor([D.shape[-2:]]).expand(B, -1)
+        else:
+            MN = lengths
 
+        M, N = D.shape[-2:]
         T = min(max(M, N), MAX_THREADS_PER_BLOCK)
         n_passes = max(M, N) // MAX_THREADS_PER_BLOCK + 1
         n_antidiag = M + N - 1
@@ -32,7 +35,7 @@ class SoftDTWcuda(Function):
 
         compute_softdtw_cuda[B, T](
             cuda.as_cuda_array(D.detach()), gamma.item(), bandwidth.item(),
-            M, N, n_passes, n_antidiag,
+            MN, n_passes, n_antidiag,
             cuda.as_cuda_array(R)
             )
 
@@ -74,10 +77,12 @@ class SoftDTWcuda(Function):
 
 
 @cuda.jit
-def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag, R):
+def compute_softdtw_cuda(D, gamma, bandwidth, mn, n_passes, n_antidiag, R):
     inv_gamma = 1.0 / gamma
 
     b = cuda.blockIdx.x
+    max_i, max_j = mn[b]
+
     thread_id = cuda.threadIdx.x
 
     for a in range(n_antidiag):
