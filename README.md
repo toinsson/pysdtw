@@ -7,7 +7,8 @@ The main source is included in the tests repository.
 
 # Installation
 
-This package is available on [pypi](https://pypi.org/project/pysdtw/) and depends on `pytorch` and `numba`. 
+This package is available on [pypi](https://pypi.org/project/pysdtw/) and depends on `pytorch` and `numba`.
+
 Install with:
 
 `pip install pysdtw`
