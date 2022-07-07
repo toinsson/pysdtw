@@ -18,18 +18,20 @@ Install with:
 import pysdtw
 
 # the input data includes a batch dimension
-X = torch.rand((10, 5, 7))
+X = torch.rand((10, 5, 7), requires_grad=True)
 Y = torch.rand((10, 9, 7))
 
 # optionally choose a pairwise distance function
 fun = pysdtw.distance.pairwise_l2_squared
 
 # create the SoftDTW distance function
-sdtw = SoftDTW(D, gamma=1.0, dist_func=fun, use_cuda=False)
+sdtw = pysdtw.SoftDTW(gamma=1.0, dist_func=fun, use_cuda=False)
 
 # soft-DTW discrepancy, approaches DTW as gamma -> 0
 res = sdtw(X, Y)
 
-# gradient w.r.t. D, shape = [m, n], which is also the expected alignment matrix
-E = sdtw.grad()
+# define a loss, which gradient can be backpropagated
+loss = res.sum().backward()
+
+# X.grad now contains the gradient with respect to the loss
 ```
