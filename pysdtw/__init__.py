@@ -50,7 +50,7 @@ class SoftDTW(torch.nn.Module):
         """
         X, Y, XY_lengths = _check_input(X, Y)
         XY_D = self.dist_func(X, Y)
-        dtw = self.dtw_func(XY_D, lengths=XY_lengths, gamma=self.gamma, bandwidth=self.bandwidth)
+        dtw = self.dtw_func(XY_D, XY_lengths, self.gamma, self.bandwidth)
 
         return dtw
 
@@ -60,7 +60,7 @@ def _check_input(x: Union[torch.Tensor, rnn.PackedSequence], y: Union[torch.Tens
     """
     x, x_len, x_packed = _unpack_sequence(x)
     y, y_len, y_packed = _unpack_sequence(y)
-    xy_len = torch.stack([x_len, y_len]).T if x_packed or y_packed else None
+    xy_len = torch.stack([x_len, y_len]).T if (x_packed or y_packed) else None
 
     bx, _, dx = x.shape
     by, _, dy = y.shape
@@ -75,7 +75,7 @@ def _unpack_sequence(x: Union[torch.Tensor, rnn.PackedSequence]) -> Tuple[torch.
         packed = True
     else:
         u, v = x.shape[:2]
-        x_len = torch.tensor([u]).expand(v)
+        x_len = torch.tensor([v]).expand(u)
         packed = False
 
     return x, x_len, packed

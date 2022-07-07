@@ -13,7 +13,7 @@ class SoftDTWcuda(Function):
     """CUDA implementation of the Soft-DTW algorithm.
     """
     @staticmethod
-    def forward(ctx, D, lengths=None, gamma=1.0, bandwidth=0):
+    def forward(ctx, D, lengths, gamma, bandwidth):
         dev = D.device
         dtype = D.dtype
         gamma = torch.cuda.FloatTensor([gamma])
@@ -21,9 +21,9 @@ class SoftDTWcuda(Function):
 
         B = D.shape[0]
         if lengths is None:
-            MN = torch.tensor([D.shape[-2:]]).expand(B, -1)
+            MN = torch.tensor([D.shape[-2:]], device=dev).expand(B, -1)
         else:
-            MN = lengths
+            MN = torch.tensor(lengths, device=dev)
 
         M, N = D.shape[-2:]
         T = min(max(M, N), MAX_THREADS_PER_BLOCK)
@@ -32,10 +32,10 @@ class SoftDTWcuda(Function):
 
         R = torch.ones((B, M + 2, N + 2), device=dev, dtype=dtype) * math.inf
         R[:, 0, 0] = 0
-
+        
         compute_softdtw_cuda[B, T](
             cuda.as_cuda_array(D.detach()), gamma.item(), bandwidth.item(),
-            MN, n_passes, n_antidiag,
+            cuda.as_cuda_array(MN), n_passes, n_antidiag,
             cuda.as_cuda_array(R)
             )
 
@@ -73,7 +73,7 @@ class SoftDTWcuda(Function):
             )
 
         E = E[:, 1:M + 1, 1:N + 1]
-        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None
+        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None, None
 
 
 @cuda.jit

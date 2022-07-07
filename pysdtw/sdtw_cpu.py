@@ -10,7 +10,7 @@ class SoftDTWcpu(Function):
     """CPU implementation of the Soft-DTW algorithm.
     """
     @staticmethod
-    def forward(ctx, D, gamma, bandwidth):
+    def forward(ctx, D, lengths, gamma, bandwidth):
         dev = D.device
         dtype = D.dtype
         gamma = torch.Tensor([gamma]).to(dev).type(dtype)  # dtype fixed

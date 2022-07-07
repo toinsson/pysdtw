@@ -3,22 +3,14 @@ import unittest
 
 # run with:
 # python -m unittest
-# python -m unittest tests.tests.TestCase.test_equal_legacy_gpu
+# python -m unittest tests.tests.TestCaseName.FunctionName
 
-class TestCase(unittest.TestCase):
+class TestImport(unittest.TestCase):
 
     def test_import(self):
         import pysdtw
-        return True
-
-    def test_import_cpu(self):
-        import pysdtw
-        sdtw = pysdtw.SoftDTW(False)
-        return True
-
-    def test_import_cuda(self):
-        import pysdtw
-        sdtw = pysdtw.SoftDTW(True)
+        sdtw = pysdtw.SoftDTW(use_cuda=False)
+        sdtw = pysdtw.SoftDTW(use_cuda=True)
         return True
 
     def test_import_legacy(self):
@@ -26,6 +18,8 @@ class TestCase(unittest.TestCase):
         sys.path.append("tests")
         import soft_dtw_cuda
         return True
+
+class TestLegacy(unittest.TestCase):
 
     def test_equal_legacy_gpu(self):
         """Test whether the pysdtw produces the same results both in forward and
@@ -36,7 +30,7 @@ class TestCase(unittest.TestCase):
         import soft_dtw_cuda
         import pysdtw
 
-        batch_size, seq_len_a, seq_len_b, dims = 1, 1400, 1500, 1
+        batch_size, seq_len_a, seq_len_b, dims = 1, 700, 500, 1
 
         A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
         Ac = A.detach().clone().requires_grad_(True)
@@ -89,6 +83,8 @@ class TestCase(unittest.TestCase):
         res = sdtw(Ac.cuda(), B.cuda())
         assert torch.allclose(res_leg, res)
 
+class TestCompute(unittest.TestCase):
+
     def test_equal_gpu_cpu(self):
         import pysdtw
 
@@ -106,6 +102,33 @@ class TestCase(unittest.TestCase):
 
         assert torch.allclose(forward_cpu, forward_gpu.cpu())
 
+    def test_packed(self):
+        import pysdtw
+        import torch.nn.utils.rnn as rnn
+
+        batch_size = 10
+        dims = 5
+        
+        # check sdtw process different input types
+        len_a = torch.randint(10, 100, (batch_size,))
+        a = [torch.rand((l, dims)) for l in len_a]
+        a_packed = rnn.pack_sequence(a, enforce_sorted=False)
+        b = torch.rand((batch_size, 25, dims))
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        f = sdtw_cuda(a_packed.cuda(), b.cuda())
+
+        # check sdtw process different input types similarly
+        a = [torch.rand((35, dims)) for l in range(batch_size)]
+        a = torch.stack(a)
+        a_packed = rnn.pack_sequence(a, enforce_sorted=False)
+        
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        f0 = sdtw_cuda(a.cuda(), b.cuda())
+        f1 = sdtw_cuda(a_packed.cuda(), b.cuda())
+        torch.allclose(f0, f1)
+        
+        
+        pass
 
 if __name__ == '__main__':
     unittest.main()
