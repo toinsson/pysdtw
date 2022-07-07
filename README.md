@@ -3,7 +3,7 @@
 Torch implementation of the [Soft-DTW algorithm](https://github.com/mblondel/soft-dtw), supports both cpu and gpu hardware.
 
 This repository started as a fork from this [project](https://github.com/Maghoumi/pytorch-softdtw-cuda).
-The main source is included in the tests repository.
+The original source is included in the tests repository.
 
 # Installation
 
