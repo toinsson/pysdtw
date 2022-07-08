@@ -19,7 +19,42 @@ class TestImport(unittest.TestCase):
         import soft_dtw_cuda
         return True
 
+
+def assert_forward_backward(x, A, y, Ac):
+    assert torch.allclose(x, y)
+
+    x_loss = x.sum()
+    y_loss = y.sum()
+    x_loss.backward()
+    y_loss.backward()
+    assert torch.allclose(A.grad, Ac.grad, atol=1e-2)
+
+
 class TestLegacy(unittest.TestCase):
+    def setUp(self):
+        import warnings
+        from numba.core.errors import NumbaPerformanceWarning
+        warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
+
+    def test_equal_legacy_cpu(self):
+        import sys
+        sys.path.append("tests")
+        import soft_dtw_cuda
+        import pysdtw
+
+        batch_size, seq_len_a, seq_len_b, dims = 10, 5, 3, 12
+
+        A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
+        Ac = A.detach().clone().requires_grad_(True)
+        B = torch.rand((batch_size, seq_len_b, dims))
+
+        sdtw_leg = soft_dtw_cuda.SoftDTW(False, gamma=1.0)
+        sdtw = pysdtw.SoftDTW(gamma=1.0, use_cuda=False)
+
+        res_leg = sdtw_leg(A, B)
+        res = sdtw(Ac, B)
+
+        assert_forward_backward(res_leg, A, res, Ac)
 
     def test_equal_legacy_gpu(self):
         import sys
@@ -36,18 +71,10 @@ class TestLegacy(unittest.TestCase):
         sdtw_leg = soft_dtw_cuda.SoftDTW(True, gamma=1.0)
         sdtw = pysdtw.SoftDTW(gamma=1.0)
 
-        # forward
         res_leg = sdtw_leg(A.cuda(), B.cuda())
         res = sdtw(Ac.cuda(), B.cuda())
-        assert torch.allclose(res_leg, res)
 
-        # backward
-        loss_leg = res_leg.sum()
-        loss = res.sum()
-        loss_leg.backward()
-        loss.backward()
-        assert torch.allclose(A.grad, Ac.grad, atol=1e-2)
-
+        assert_forward_backward(res_leg, A, res, Ac)
 
     def test_equal_legacy_distance(self):
         import sys
@@ -68,13 +95,13 @@ class TestLegacy(unittest.TestCase):
             y_norm = (y**2).sum(-1).unsqueeze(-2)
             dist = x_norm + y_norm - 2.0 * torch.bmm(x, y.mT)
             return torch.clamp(dist, 0.0, torch.inf)
-
         sdtw = pysdtw.SoftDTW(gamma=1.0, dist_func=pairwise_l2_squared)
 
-        # forward
         res_leg = sdtw_leg(A.cuda(), B.cuda())
         res = sdtw(Ac.cuda(), B.cuda())
-        assert torch.allclose(res_leg, res)
+
+        assert_forward_backward(res_leg, A, res, Ac)
+
 
 class TestCompute(unittest.TestCase):
 
@@ -103,7 +130,6 @@ class TestCompute(unittest.TestCase):
         batch_size = 10
         dims = 5
         
-        # can process different input types
         len_a = torch.randint(10, 100, (batch_size,))
         a = [torch.rand((l, dims)) for l in len_a]
         a_packed = rnn.pack_sequence(a, enforce_sorted=False)
@@ -120,9 +146,7 @@ class TestCompute(unittest.TestCase):
         sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
         batch_size = 10
         dims = 5
-        # can process different input types similarly
 
-        # here a and a_packed are equal
         a = [torch.rand((35, dims)) for l in range(batch_size)]
         a = torch.stack(a)
         a_packed = rnn.pack_sequence(a, enforce_sorted=False)
@@ -141,7 +165,6 @@ class TestCompute(unittest.TestCase):
         batch_size = 3
         dims = 5
         
-        # here a,b have different lengths
         len_a = torch.randint(10, 100, (batch_size,))
         len_b = torch.randint(10, 100, (batch_size,))
         a = [torch.rand((l, dims)) for l in len_a]

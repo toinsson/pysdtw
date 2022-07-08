@@ -35,7 +35,7 @@ class SoftDTWcpu(Function):
         g_ = gamma.item()
         b_ = bandwidth.item()
         E = torch.Tensor(compute_softdtw_backward(D_, R_, g_, b_)).to(dev).type(dtype)
-        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None
+        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None, None
 
 
 @numba.jit(nopython=True, parallel=True)
