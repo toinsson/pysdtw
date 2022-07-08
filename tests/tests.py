@@ -27,6 +27,7 @@ def assert_forward_backward(x, A, y, Ac):
     y_loss = y.sum()
     x_loss.backward()
     y_loss.backward()
+
     assert torch.allclose(A.grad, Ac.grad, atol=1e-2)
 
 
@@ -82,7 +83,7 @@ class TestLegacy(unittest.TestCase):
         import soft_dtw_cuda
         import pysdtw
 
-        batch_size, seq_len_a, seq_len_b, dims = 10, 512, 1023, 15
+        batch_size, seq_len_a, seq_len_b, dims = 10, 513, 259, 15
 
         A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
         Ac = A.detach().clone().requires_grad_(True)
@@ -104,23 +105,27 @@ class TestLegacy(unittest.TestCase):
 
 
 class TestCompute(unittest.TestCase):
+    def setUp(self):
+        import warnings
+        from numba.core.errors import NumbaPerformanceWarning
+        warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 
     def test_equal_gpu_cpu(self):
         import pysdtw
 
-        batch_size, seq_len_a, seq_len_b, dims = 10, 512, 1023, 15
+        batch_size, seq_len_a, seq_len_b, dims = 11, 32, 57, 2
         a_cpu = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
         b_cpu = torch.rand((batch_size, seq_len_b, dims))
-        a_gpu = a_cpu.cuda()
+        a_gpu = a_cpu.detach().clone().requires_grad_(True)
         b_gpu = b_cpu.cuda()
 
         sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
         sdtw_cpu = pysdtw.SoftDTW(use_cuda=False)
 
         forward_cpu = sdtw_cpu(a_cpu, b_cpu)
-        forward_gpu = sdtw_cuda(a_gpu, b_gpu)
+        forward_gpu = sdtw_cuda(a_gpu.cuda(), b_gpu)
 
-        assert torch.allclose(forward_cpu, forward_gpu.cpu())
+        assert_forward_backward(forward_cpu, a_cpu, forward_gpu.cpu(), a_gpu)
 
     def test_packed_a(self):
         import pysdtw
@@ -138,7 +143,12 @@ class TestCompute(unittest.TestCase):
         f10 = sdtw_cuda(a_packed.cuda(), b.cuda())
         f01 = sdtw_cuda(b.cuda(), a_packed.cuda())
         f11 = sdtw_cuda(a_packed.cuda(), a_packed.cuda())
-
+        
+        sdtw_cpu = pysdtw.SoftDTW(use_cuda=False)
+        f10 = sdtw_cpu(a_packed, b)
+        f01 = sdtw_cpu(b, a_packed)
+        f11 = sdtw_cpu(a_packed, a_packed)
+        
     def test_packed_b(self):
         import pysdtw
         import torch.nn.utils.rnn as rnn
@@ -147,17 +157,37 @@ class TestCompute(unittest.TestCase):
         batch_size = 10
         dims = 5
 
-        a = [torch.rand((35, dims)) for l in range(batch_size)]
-        a = torch.stack(a)
-        a_packed = rnn.pack_sequence(a, enforce_sorted=False)
-        b = torch.rand((batch_size, 25, dims))
+        A0 = [torch.rand((35, dims)) for l in range(batch_size)]
+        A = torch.stack(A0).requires_grad_(True)
+        Ac = A.detach().clone().requires_grad_(True)
+        Ac_packed = rnn.pack_sequence(Ac, enforce_sorted=False)
+        B = torch.rand((batch_size, 25, dims))
 
         sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
-        f0 = sdtw_cuda(a.cuda(), b.cuda())
-        f1 = sdtw_cuda(a_packed.cuda(), b.cuda())
-        torch.allclose(f0, f1)
+        f0 = sdtw_cuda(A.cuda(), B.cuda())
+        f1 = sdtw_cuda(Ac_packed.cuda(), B.cuda())
+        assert_forward_backward(f0, A, f1, Ac)
 
     def test_packed_c(self):
+        import pysdtw
+        import torch.nn.utils.rnn as rnn
+
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        batch_size = 10
+        dims = 5
+
+        A0 = [torch.rand((35, dims)) for l in range(batch_size)]
+        A = torch.stack(A0).requires_grad_(True)
+        Ac = A.detach().clone().requires_grad_(True)
+        Ac_packed = rnn.pack_sequence(Ac, enforce_sorted=False)
+        B = torch.rand((batch_size, 25, dims))
+
+        sdtw_cpu = pysdtw.SoftDTW(use_cuda=False)
+        f0 = sdtw_cpu(A, B)
+        f1 = sdtw_cpu(Ac_packed, B)
+        assert_forward_backward(f0, A, f1, Ac)
+
+    def test_packed_d(self):
         import pysdtw
         import torch.nn.utils.rnn as rnn
 
