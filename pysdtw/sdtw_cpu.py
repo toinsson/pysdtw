@@ -20,7 +20,10 @@ class SoftDTWcpu(Function):
         b_ = bandwidth.item()
         R = torch.Tensor(compute_softdtw(D_, g_, b_)).to(dev).type(dtype)
         ctx.save_for_backward(D, R, gamma, bandwidth)
-        return R[:, -2, -2]
+        Ms = lengths[:,0]
+        Ns = lengths[:,1]
+        res = R[:, Ms, Ns].diag()
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):

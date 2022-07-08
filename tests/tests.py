@@ -27,7 +27,7 @@ class TestLegacy(unittest.TestCase):
         import soft_dtw_cuda
         import pysdtw
 
-        batch_size, seq_len_a, seq_len_b, dims = 1, 700, 500, 1
+        batch_size, seq_len_a, seq_len_b, dims = 10, 5, 3, 12
 
         A = torch.rand((batch_size, seq_len_a, dims), requires_grad=True)
         Ac = A.detach().clone().requires_grad_(True)
@@ -126,6 +126,8 @@ class TestCompute(unittest.TestCase):
         a = [torch.rand((35, dims)) for l in range(batch_size)]
         a = torch.stack(a)
         a_packed = rnn.pack_sequence(a, enforce_sorted=False)
+        b = torch.rand((batch_size, 25, dims))
+
         sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
         f0 = sdtw_cuda(a.cuda(), b.cuda())
         f1 = sdtw_cuda(a_packed.cuda(), b.cuda())
