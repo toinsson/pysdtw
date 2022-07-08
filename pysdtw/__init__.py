@@ -47,34 +47,34 @@ class SoftDTW(torch.nn.Module):
         Returns:
             The soft-DTW distance between X and Y of size batch_size.
         """
-        X, Y, XY_lengths = _check_input(X, Y)
+        X, Y, XY_lengths = _prepare_input(X, Y)
         XY_D = self.dist_func(X, Y)
         dtw = self.dtw_func(XY_D, XY_lengths, self.gamma, self.bandwidth)
 
         return dtw
 
 
-def _check_input(x: Union[T, PS], y: Union[T, PS]) -> Tuple[T, T, T]:
-    """Checks the inputs. Batch size and outer dimension must be the same.
+def _prepare_input(x: Union[T, PS], y: Union[T, PS]) -> Tuple[T, T, T]:
+    """Prepare the inputs. PackedSequences are unpacked. The lengths of
+    individual sequences in x and y are returned as a staked array of shape
+    (batchx2). Batch size and outer dimension of x and y must be the same.
     """
-    x, x_len, x_packed = _unpack_sequence(x)
-    y, y_len, y_packed = _unpack_sequence(y)
-    xy_len = torch.stack([x_len, y_len]).T if (x_packed or y_packed) else None
+    x, x_len = _unpack_sequence(x)
+    y, y_len = _unpack_sequence(y)
+    xy_len = torch.stack([x_len, y_len]).T.to(x.device)
 
-    bx, _, dx = x.shape
-    by, _, dy = y.shape
-    assert bx == by
-    assert dx == dy
+    bx, lx, dx = x.shape
+    by, ly, dy = y.shape
+    assert (bx == by) and (dx == dy)
 
     return x, y, xy_len
 
 def _unpack_sequence(x: Union[T, PS]) -> Tuple[T, T, bool]:
+    """Return an unpacked sequence and lengths of subsequences.
+    """
     if isinstance(x, rnn.PackedSequence):
         x, x_len = rnn.pad_packed_sequence(x, batch_first=True)
-        packed = True
     else:
         u, v = x.shape[:2]
         x_len = torch.tensor([v]).expand(u)
-        packed = False
-
-    return x, x_len, packed
+    return x, x_len

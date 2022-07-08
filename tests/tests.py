@@ -22,9 +22,6 @@ class TestImport(unittest.TestCase):
 class TestLegacy(unittest.TestCase):
 
     def test_equal_legacy_gpu(self):
-        """Test whether the pysdtw produces the same results both in forward and
-        backward as the legacy code.
-        """
         import sys
         sys.path.append("tests")
         import soft_dtw_cuda
@@ -51,15 +48,11 @@ class TestLegacy(unittest.TestCase):
         loss.backward()
         assert torch.allclose(A.grad, Ac.grad, atol=1e-2)
 
-        return True
 
     def test_equal_legacy_distance(self):
-        """Tests equality for a new distance function.
-        """
         import sys
         sys.path.append("tests")
         import soft_dtw_cuda
-
         import pysdtw
 
         batch_size, seq_len_a, seq_len_b, dims = 10, 512, 1023, 15
@@ -102,33 +95,62 @@ class TestCompute(unittest.TestCase):
 
         assert torch.allclose(forward_cpu, forward_gpu.cpu())
 
-    def test_packed(self):
+    def test_packed_a(self):
         import pysdtw
         import torch.nn.utils.rnn as rnn
 
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
         batch_size = 10
         dims = 5
         
-        # check sdtw process different input types
+        # can process different input types
         len_a = torch.randint(10, 100, (batch_size,))
         a = [torch.rand((l, dims)) for l in len_a]
         a_packed = rnn.pack_sequence(a, enforce_sorted=False)
         b = torch.rand((batch_size, 25, dims))
-        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
-        f = sdtw_cuda(a_packed.cuda(), b.cuda())
 
-        # check sdtw process different input types similarly
+        f10 = sdtw_cuda(a_packed.cuda(), b.cuda())
+        f01 = sdtw_cuda(b.cuda(), a_packed.cuda())
+        f11 = sdtw_cuda(a_packed.cuda(), a_packed.cuda())
+
+    def test_packed_b(self):
+        import pysdtw
+        import torch.nn.utils.rnn as rnn
+
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        batch_size = 10
+        dims = 5
+        # can process different input types similarly
+
+        # here a and a_packed are equal
         a = [torch.rand((35, dims)) for l in range(batch_size)]
         a = torch.stack(a)
         a_packed = rnn.pack_sequence(a, enforce_sorted=False)
-        
         sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
         f0 = sdtw_cuda(a.cuda(), b.cuda())
         f1 = sdtw_cuda(a_packed.cuda(), b.cuda())
         torch.allclose(f0, f1)
+
+    def test_packed_c(self):
+        import pysdtw
+        import torch.nn.utils.rnn as rnn
+
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        batch_size = 3
+        dims = 5
         
+        # here a,b have different lengths
+        len_a = torch.randint(10, 100, (batch_size,))
+        len_b = torch.randint(10, 100, (batch_size,))
+        a = [torch.rand((l, dims)) for l in len_a]
+        b = [torch.rand((l, dims)) for l in len_b]
+
+        res0 = torch.cat([sdtw_cuda(ai.unsqueeze(0).cuda(), bi.unsqueeze(0).cuda()) for (ai, bi) in zip(a, b)])
+        a_packed = rnn.pack_sequence(a, enforce_sorted=False)
+        b_packed = rnn.pack_sequence(b, enforce_sorted=False)
+        res1 = sdtw_cuda(a_packed.cuda(), b_packed.cuda())
         
-        pass
+        torch.allclose(res0, res1)
 
 if __name__ == '__main__':
     unittest.main()

@@ -20,11 +20,6 @@ class SoftDTWcuda(Function):
         bandwidth = torch.cuda.FloatTensor([bandwidth])
 
         B = D.shape[0]
-        if lengths is None:
-            MN = torch.tensor([D.shape[-2:]], device=dev).expand(B, -1)
-        else:
-            MN = torch.tensor(lengths, device=dev)
-
         M, N = D.shape[-2:]
         T = min(max(M, N), MAX_THREADS_PER_BLOCK)
         n_passes = max(M, N) // MAX_THREADS_PER_BLOCK + 1
@@ -35,12 +30,15 @@ class SoftDTWcuda(Function):
         
         compute_softdtw_cuda[B, T](
             cuda.as_cuda_array(D.detach()), gamma.item(), bandwidth.item(),
-            cuda.as_cuda_array(MN), n_passes, n_antidiag,
+            cuda.as_cuda_array(lengths), n_passes, n_antidiag,
             cuda.as_cuda_array(R)
             )
 
         ctx.save_for_backward(D, R.clone(), gamma, bandwidth)
-        return R[:, -2, -2]
+        Ms = lengths[:,0]
+        Ns = lengths[:,1]
+        res = R[:, Ms-2, Ns-2].diag()
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
