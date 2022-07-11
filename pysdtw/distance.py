@@ -2,8 +2,9 @@
 """Common distance functions.
 """
 import torch
+T = torch.Tensor
 
-def pairwise_l2_squared(x, y):
+def pairwise_l2_squared(x: T, y: T) -> T:
     """Computes the pairwise distance matrix between x and y using the
     quadratic expansion. This limits the memory cost to the detriment of compute
     accuracy.
@@ -14,7 +15,7 @@ def pairwise_l2_squared(x, y):
     return torch.clamp(dist, 0.0, torch.inf)
 
 
-def pairwise_l2_squared_exact(x, y):
+def pairwise_l2_squared_exact(x: T, y: T) -> T:
     """Computes the pairwise distance matrix between x and y. This formula
     incurs a high memory cost.
     """

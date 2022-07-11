@@ -69,7 +69,7 @@ def _prepare_input(x: Union[T, PS], y: Union[T, PS]) -> Tuple[T, T, T]:
 
     return x, y, xy_len
 
-def _unpack_sequence(x: Union[T, PS]) -> Tuple[T, T, bool]:
+def _unpack_sequence(x: Union[T, PS]) -> Tuple[T, T]:
     """Return an unpacked sequence and lengths of subsequences.
     """
     if isinstance(x, rnn.PackedSequence):
