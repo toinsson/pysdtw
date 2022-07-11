@@ -1,5 +1,6 @@
 # Licensed under the MIT License, see LICENSE for details.
-
+"""Common distance functions.
+"""
 import torch
 
 def pairwise_l2_squared(x, y):
@@ -15,7 +16,7 @@ def pairwise_l2_squared(x, y):
 
 def pairwise_l2_squared_exact(x, y):
     """Computes the pairwise distance matrix between x and y. This formula
-    incurs a high memory use.
+    incurs a high memory cost.
     """
     n = x.size(1)
     m = y.size(1)
