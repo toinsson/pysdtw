@@ -10,7 +10,7 @@ class SoftDTWcpu(Function):
     """CPU implementation of the Soft-DTW algorithm.
     """
     @staticmethod
-    def forward(ctx, D, gamma, bandwidth):
+    def forward(ctx, D, lengths, gamma, bandwidth):
         dev = D.device
         dtype = D.dtype
         gamma = torch.Tensor([gamma]).to(dev).type(dtype)  # dtype fixed
@@ -20,7 +20,10 @@ class SoftDTWcpu(Function):
         b_ = bandwidth.item()
         R = torch.Tensor(compute_softdtw(D_, g_, b_)).to(dev).type(dtype)
         ctx.save_for_backward(D, R, gamma, bandwidth)
-        return R[:, -2, -2]
+        Ms = lengths[:,0]
+        Ns = lengths[:,1]
+        res = R[:, Ms, Ns].diag()
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -32,7 +35,7 @@ class SoftDTWcpu(Function):
         g_ = gamma.item()
         b_ = bandwidth.item()
         E = torch.Tensor(compute_softdtw_backward(D_, R_, g_, b_)).to(dev).type(dtype)
-        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None
+        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None, None
 
 
 @numba.jit(nopython=True, parallel=True)

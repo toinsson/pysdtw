@@ -15,7 +15,7 @@ Install with:
 
 # Usage
 
-```
+```python
 import pysdtw
 
 # the input data includes a batch dimension
