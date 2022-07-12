@@ -13,37 +13,38 @@ class SoftDTWcuda(Function):
     """CUDA implementation of the Soft-DTW algorithm.
     """
     @staticmethod
-    def forward(ctx, D, gamma, bandwidth):
+    def forward(ctx, D, lengths, gamma, bandwidth):
         dev = D.device
         dtype = D.dtype
         gamma = torch.cuda.FloatTensor([gamma])
         bandwidth = torch.cuda.FloatTensor([bandwidth])
 
         B = D.shape[0]
-        M = D.shape[1]
-        N = D.shape[2]
-
+        M, N = D.shape[-2:]
         T = min(max(M, N), MAX_THREADS_PER_BLOCK)
         n_passes = max(M, N) // MAX_THREADS_PER_BLOCK + 1
         n_antidiag = M + N - 1
 
         R = torch.ones((B, M + 2, N + 2), device=dev, dtype=dtype) * math.inf
         R[:, 0, 0] = 0
-
+        
         compute_softdtw_cuda[B, T](
             cuda.as_cuda_array(D.detach()), gamma.item(), bandwidth.item(),
-            M, N, n_passes, n_antidiag,
+            cuda.as_cuda_array(lengths), n_passes, n_antidiag,
             cuda.as_cuda_array(R)
             )
 
-        ctx.save_for_backward(D, R.clone(), gamma, bandwidth)
-        return R[:, -2, -2]
+        ctx.save_for_backward(D, R.clone(), lengths, gamma, bandwidth)
+        Ms = lengths[:,0]
+        Ns = lengths[:,1]
+        res = R[:, Ms, Ns].diag()
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
         dev = grad_output.device
         dtype = grad_output.dtype
-        D, R, gamma, bandwidth = ctx.saved_tensors
+        D, R, lengths, gamma, bandwidth = ctx.saved_tensors
 
         B = D.shape[0]
         M = D.shape[1]
@@ -65,19 +66,21 @@ class SoftDTWcuda(Function):
 
         compute_softdtw_backward_cuda[B, T](
             cuda.as_cuda_array(D_), cuda.as_cuda_array(R), 1.0 / gamma.item(), bandwidth.item(),
-            M, N, n_passes, n_antidiag,
+            cuda.as_cuda_array(lengths), n_passes, n_antidiag,
             cuda.as_cuda_array(E)
             )
 
         E = E[:, 1:M + 1, 1:N + 1]
-        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None
+        return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None, None
 
 
 @cuda.jit
-def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag, R):
+def compute_softdtw_cuda(D, gamma, bandwidth, mn, n_passes, n_antidiag, R):
     inv_gamma = 1.0 / gamma
 
     b = cuda.blockIdx.x
+    max_i, max_j = mn[b]
+
     thread_id = cuda.threadIdx.x
 
     for a in range(n_antidiag):
@@ -107,8 +110,9 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, n_antidiag
 
 
 @cuda.jit
-def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, max_i, max_j, n_passes, n_antidiag, E):
+def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, mn, n_passes, n_antidiag, E):
     k = cuda.blockIdx.x
+    max_i, max_j = mn[k]
     thread_id = cuda.threadIdx.x
 
     for a in range(n_antidiag):
