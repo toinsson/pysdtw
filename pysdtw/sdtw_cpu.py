@@ -77,6 +77,9 @@ def compute_softdtw_backward(D_, R, gamma, bandwidth):
     R[:, :, -1] = -np.inf
     R[:, -1, :] = -np.inf
     R[:, -1, -1] = R[:, -2, -2]
+
+    # print(R)
+
     for k in numba.prange(B):
         for j in range(M, 0, -1):
             for i in range(N, 0, -1):

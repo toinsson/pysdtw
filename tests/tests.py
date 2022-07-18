@@ -197,7 +197,7 @@ class TestCompute(unittest.TestCase):
         
         len_a = torch.randint(10, 100, (batch_size,))
         len_b = torch.randint(10, 100, (batch_size,))
-        a = [torch.rand((l, dims)) for l in len_a]
+        a = [torch.rand((l, dims), requires_grad=True) for l in len_a]
         b = [torch.rand((l, dims)) for l in len_b]
 
         res0 = torch.cat([sdtw_cuda(ai.unsqueeze(0).cuda(), bi.unsqueeze(0).cuda()) for (ai, bi) in zip(a, b)])
@@ -206,6 +206,51 @@ class TestCompute(unittest.TestCase):
         res1 = sdtw_cuda(a_packed.cuda(), b_packed.cuda())
         
         torch.allclose(res0, res1)
+
+    def test_packed_e(self):
+        import pysdtw
+        import torch.nn.utils.rnn as rnn
+        
+        sdtw_cuda = pysdtw.SoftDTW(use_cuda=True)
+        sdtw_cpu = pysdtw.SoftDTW(use_cuda=False)
+        batch_size = 20
+        dims = 5
+
+        len_a = torch.randint(20, 50, (batch_size,))
+        len_b = torch.randint(30, 50, (batch_size,))
+        a = [torch.rand((l, dims), requires_grad=True) for l in len_a]
+        a_c0 = [ai.detach().clone().requires_grad_(True) for ai in a]
+        # a_c1 = [ai.detach().clone().requires_grad_(True) for ai in a]
+        b = [torch.rand((l, dims)) for l in len_b]
+
+        res0 = torch.cat([sdtw_cuda(ai.unsqueeze(0).cuda(), bi.unsqueeze(0).cuda()) for (ai, bi) in zip(a, b)])
+
+        a_packed = rnn.pack_sequence(a_c0, enforce_sorted=False)
+        b_packed = rnn.pack_sequence(b, enforce_sorted=False)
+        res1 = sdtw_cuda(a_packed.cuda(), b_packed.cuda())
+
+
+        loss0 = res0.sum()
+        loss0.backward()
+
+        # print("GPU")
+
+        loss1 = res1.sum()
+        loss1.backward()
+        
+        grad0 = torch.cat([ai.grad for ai in a])
+        grad1 = torch.cat([ai.grad for ai in a_c0])
+        # print(grad0)
+        # print(grad1)
+        assert torch.allclose(grad0, grad1, atol=1e-4)
+
+
+        # torch.allclose(res0, res1)
+        # a_padded = rnn.pad_sequence(a_c1, batch_first=True)
+        # b_padded = rnn.pad_sequence(b, batch_first=True)
+        # res2 = sdtw_cuda(a_padded.cuda(), b_padded.cuda())
+        # torch.allclose(res0, res1)
+
 
 if __name__ == '__main__':
     unittest.main()

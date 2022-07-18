@@ -57,12 +57,14 @@ class SoftDTWcuda(Function):
         D_ = torch.zeros((B, M + 2, N + 2), dtype=dtype, device=dev)
         D_[:, 1:M + 1, 1:N + 1] = D
 
-        R[:, :, -1] = -math.inf
-        R[:, -1, :] = -math.inf
-        R[:, -1, -1] = R[:, -2, -2]
-
         E = torch.zeros((B, M + 2, N + 2), dtype=dtype, device=dev)
-        E[:, -1, -1] = 1
+
+        for Bi, (Mi, Ni) in enumerate(lengths):
+            R[Bi, :, Ni+1] = -math.inf
+            R[Bi, Mi+1, :] = -math.inf
+            R[Bi, Mi+1, Ni+1] = R[Bi, Mi, Ni]
+
+            E[Bi, Mi+1, Ni+1] = 1
 
         compute_softdtw_backward_cuda[B, T](
             cuda.as_cuda_array(D_), cuda.as_cuda_array(R), 1.0 / gamma.item(), bandwidth.item(),
@@ -80,6 +82,8 @@ def compute_softdtw_cuda(D, gamma, bandwidth, mn, n_passes, n_antidiag, R):
 
     b = cuda.blockIdx.x
     max_i, max_j = mn[b]
+
+    # print(b, max_i, max_j)
 
     thread_id = cuda.threadIdx.x
 
@@ -114,6 +118,10 @@ def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, mn, n_passes, n_an
     k = cuda.blockIdx.x
     max_i, max_j = mn[k]
     thread_id = cuda.threadIdx.x
+
+
+    # print(k, max_i, max_j)
+
 
     for a in range(n_antidiag):
         rev_a = n_antidiag - a - 1
