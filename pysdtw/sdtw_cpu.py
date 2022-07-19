@@ -18,42 +18,52 @@ class SoftDTWcpu(Function):
         D_ = D.detach().cpu().numpy()
         g_ = gamma.item()
         b_ = bandwidth.item()
-        R = torch.Tensor(compute_softdtw(D_, g_, b_)).to(dev).type(dtype)
-        ctx.save_for_backward(D, R, gamma, bandwidth)
-        Ms = lengths[:,0]
-        Ns = lengths[:,1]
+
+        R = torch.Tensor(compute_softdtw(D_, lengths.numpy(), g_, b_)).to(dev).type(dtype)
+
+        ctx.save_for_backward(D, R, lengths, gamma, bandwidth)
+
+        Ms, Ns = lengths[:,0], lengths[:,1]
         res = R[:, Ms, Ns].diag()
+
         return res
 
     @staticmethod
     def backward(ctx, grad_output):
         dev = grad_output.device
         dtype = grad_output.dtype
-        D, R, gamma, bandwidth = ctx.saved_tensors
+        D, R, lengths, gamma, bandwidth = ctx.saved_tensors
         D_ = D.detach().cpu().numpy()
         R_ = R.detach().cpu().numpy()
         g_ = gamma.item()
         b_ = bandwidth.item()
-        E = torch.Tensor(compute_softdtw_backward(D_, R_, g_, b_)).to(dev).type(dtype)
+        E = torch.Tensor(compute_softdtw_backward(D_, R_, lengths.numpy(), g_, b_)).to(dev).type(dtype)
         return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None, None
 
 
+@numba.jit(nopython=True)
+def sakoe_chiba_condition(i, j, M, N, bandwidth):
+    """Approximate Sakoe-Chiba band for non-squared matrix.
+    """
+    i_sc, j_sc = i, j
+    if N > M: i_sc = i * N / M
+    if N < M: j_sc = j * M / N
+    return (abs(i_sc - j_sc) > bandwidth > 0)
+
+
 @numba.jit(nopython=True, parallel=True)
-def compute_softdtw(D, gamma, bandwidth):
+def compute_softdtw(D, lengths, gamma, bandwidth):
     B = D.shape[0]
     N = D.shape[1]
     M = D.shape[2]
     R = np.ones((B, N + 2, M + 2)) * np.inf
     R[:, 0, 0] = 0
     for b in numba.prange(B):
+        N, M = lengths[b]
         for j in range(1, M + 1):
             for i in range(1, N + 1):
 
-                i_sc, j_sc = i, j
-                if M > N: i_sc = i * M / N
-                if M < N: j_sc = j * N / M
-                if 0 < bandwidth < np.abs(i_sc - j_sc):
-                    continue
+                if sakoe_chiba_condition(i, j, N, M, bandwidth): continue
 
                 r0 = -R[b, i - 1, j - 1] / gamma
                 r1 = -R[b, i - 1, j] / gamma
@@ -66,29 +76,29 @@ def compute_softdtw(D, gamma, bandwidth):
 
 
 @numba.jit(nopython=True, parallel=True)
-def compute_softdtw_backward(D_, R, gamma, bandwidth):
+def compute_softdtw_backward(D_, R, lengths, gamma, bandwidth):
     B = D_.shape[0]
     N = D_.shape[1]
     M = D_.shape[2]
     D = np.zeros((B, N + 2, M + 2))
     E = np.zeros((B, N + 2, M + 2))
     D[:, 1:N + 1, 1:M + 1] = D_
-    E[:, -1, -1] = 1
-    R[:, :, -1] = -np.inf
-    R[:, -1, :] = -np.inf
-    R[:, -1, -1] = R[:, -2, -2]
+
     for k in numba.prange(B):
-        for j in range(M, 0, -1):
-            for i in range(N, 0, -1):
+
+        Ni, Mi = lengths[k]
+        E[k, Ni+1, Mi+1] = 1
+        R[k, :, Mi+1] = -np.inf
+        R[k, Ni+1, :] = -np.inf
+        R[k, Ni+1, Mi+1] = R[k, Ni, Mi]
+
+        for j in range(Mi, 0, -1):
+            for i in range(Ni, 0, -1):
 
                 if np.isinf(R[k, i, j]):
                     R[k, i, j] = -np.inf
 
-                i_sc, j_sc = i, j
-                if M > N: i_sc = i * M / N
-                if M < N: j_sc = j * N / M
-                if 0 < bandwidth < np.abs(i_sc - j_sc):
-                    continue
+                if sakoe_chiba_condition(i, j, N, M, bandwidth): continue
 
                 a0 = (R[k, i + 1, j] - R[k, i, j] - D[k, i + 1, j]) / gamma
                 b0 = (R[k, i, j + 1] - R[k, i, j] - D[k, i, j + 1]) / gamma
