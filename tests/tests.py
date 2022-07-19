@@ -6,7 +6,11 @@ import unittest
 # python -m unittest tests.tests.TestCaseName.FunctionName
 
 class TestImport(unittest.TestCase):
-
+    """Test importing the package needed for the testcases:
+    - pysdtw: this package
+    - soft_dtw_cuda: the package from which pysdtw is inspired
+    - SoftDTW: Blondel original package
+    """
     def test_import(self):
         import pysdtw
         sdtw = pysdtw.SoftDTW(use_cuda=False)
@@ -19,8 +23,14 @@ class TestImport(unittest.TestCase):
         import soft_dtw_cuda
         return True
 
+    def test_import_blondel(self):
+        import SoftDTW
+        return True
+
 
 def assert_forward_backward(x, A, y, Ac):
+    """Assert that DTW discrepencies x and y, as well as gradients on A and Ac are equal.
+    """
     assert torch.allclose(x, y)
 
     x_loss = x.sum()
@@ -32,6 +42,8 @@ def assert_forward_backward(x, A, y, Ac):
 
 
 class TestLegacy(unittest.TestCase):
+    """Test whether pysdtw is equivalent to soft_dtw_cuda.
+    """
     def setUp(self):
         import warnings
         from numba.core.errors import NumbaPerformanceWarning
@@ -219,37 +231,34 @@ class TestCompute(unittest.TestCase):
         len_a = torch.randint(20, 50, (batch_size,))
         len_b = torch.randint(30, 50, (batch_size,))
         a = [torch.rand((l, dims), requires_grad=True) for l in len_a]
-        a_c0 = [ai.detach().clone().requires_grad_(True) for ai in a]
-        # a_c1 = [ai.detach().clone().requires_grad_(True) for ai in a]
         b = [torch.rand((l, dims)) for l in len_b]
 
-        res0 = torch.cat([sdtw_cuda(ai.unsqueeze(0).cuda(), bi.unsqueeze(0).cuda()) for (ai, bi) in zip(a, b)])
+        # ground truth, DTW computed separately on the batch
+        res0 = torch.cat([sdtw_cuda(ai.unsqueeze(0).cuda(), bi.unsqueeze(0).cuda()) 
+                          for (ai, bi) in zip(a, b)])
+        loss0 = res0.sum()
+        loss0.backward()
+        grad0 = torch.cat([ai.grad for ai in a])
 
+        # test GPU
+        a_c0 = [ai.detach().clone().requires_grad_(True) for ai in a]
         a_packed = rnn.pack_sequence(a_c0, enforce_sorted=False)
         b_packed = rnn.pack_sequence(b, enforce_sorted=False)
         res1 = sdtw_cuda(a_packed.cuda(), b_packed.cuda())
-
-
-        loss0 = res0.sum()
-        loss0.backward()
-
-        # print("GPU")
-
         loss1 = res1.sum()
         loss1.backward()
-        
-        grad0 = torch.cat([ai.grad for ai in a])
         grad1 = torch.cat([ai.grad for ai in a_c0])
-        # print(grad0)
-        # print(grad1)
         assert torch.allclose(grad0, grad1, atol=1e-4)
-
-
-        # torch.allclose(res0, res1)
-        # a_padded = rnn.pad_sequence(a_c1, batch_first=True)
-        # b_padded = rnn.pad_sequence(b, batch_first=True)
-        # res2 = sdtw_cuda(a_padded.cuda(), b_padded.cuda())
-        # torch.allclose(res0, res1)
+        
+        # test CPU
+        a_c1 = [ai.detach().clone().requires_grad_(True) for ai in a]
+        a_packed = rnn.pack_sequence(a_c1, enforce_sorted=False)
+        b_packed = rnn.pack_sequence(b, enforce_sorted=False)
+        res2 = sdtw_cpu(a_packed, b_packed)
+        loss2 = res2.sum()
+        loss2.backward()
+        grad2 = torch.cat([ai.grad for ai in a_c1])
+        assert torch.allclose(grad0, grad2, atol=1e-4)
 
 
 if __name__ == '__main__':
