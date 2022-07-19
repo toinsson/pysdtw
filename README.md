@@ -1,9 +1,8 @@
 # pysdtw
 
-Torch implementation of the [Soft-DTW algorithm](https://github.com/mblondel/soft-dtw), supports both cpu and gpu hardware.
+Torch implementation of the [Soft-DTW algorithm](https://github.com/mblondel/soft-dtw), supports both cpu and CUDA hardware.
 
-This repository started as a fork from this [project](https://github.com/Maghoumi/pytorch-softdtw-cuda).
-The original source is included in the tests repository.
+Note: This repository started as a fork from this [project](https://github.com/Maghoumi/pytorch-softdtw-cuda).
 
 # Installation
 
@@ -32,7 +31,8 @@ sdtw = pysdtw.SoftDTW(gamma=1.0, dist_func=fun, use_cuda=False)
 res = sdtw(X, Y)
 
 # define a loss, which gradient can be backpropagated
-loss = res.sum().backward()
+loss = res.sum()
+loss.backward()
 
 # X.grad now contains the gradient with respect to the loss
 ```

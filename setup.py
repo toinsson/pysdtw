@@ -13,7 +13,7 @@ with io.open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(name='pysdtw',
-      version='0.0.3',
+      version='0.0.4',
       description='Torch implementation of Soft-DTW, supports CUDA devices.',
       long_description=long_description,
       long_description_content_type='text/markdown',
