@@ -6,7 +6,7 @@ with open("requirements.txt", "r") as requirements:
     requirements = requirements.read()
 
 setup(name='pysdtw',
-      version='0.0.2',
+      version='0.0.3',
       description='Soft-DTW for CUDA devices.',
       author='Antoine Loriette',
       author_email='antoine.loriette@gmail.com',
