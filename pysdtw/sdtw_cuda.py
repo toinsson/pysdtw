@@ -19,8 +19,7 @@ class SoftDTWcuda(Function):
         gamma = torch.cuda.FloatTensor([gamma])
         bandwidth = torch.cuda.FloatTensor([bandwidth])
 
-        B = D.shape[0]
-        M, N = D.shape[-2:]
+        B, M, N = D.shape
         T = min(max(M, N), MAX_THREADS_PER_BLOCK)
         n_passes = max(M, N) // MAX_THREADS_PER_BLOCK + 1
         n_antidiag = M + N - 1
@@ -35,9 +34,10 @@ class SoftDTWcuda(Function):
             )
 
         ctx.save_for_backward(D, R.clone(), lengths, gamma, bandwidth)
-        Ms = lengths[:,0]
-        Ns = lengths[:,1]
+
+        Ms, Ns = lengths[:,0], lengths[:,1]
         res = R[:, Ms, Ns].diag()
+
         return res
 
     @staticmethod
@@ -46,23 +46,14 @@ class SoftDTWcuda(Function):
         dtype = grad_output.dtype
         D, R, lengths, gamma, bandwidth = ctx.saved_tensors
 
-        B = D.shape[0]
-        M = D.shape[1]
-        N = D.shape[2]
-
+        B, M, N = D.shape
         T = min(max(M, N), MAX_THREADS_PER_BLOCK)
         n_passes = max(M, N) // MAX_THREADS_PER_BLOCK + 1
         n_antidiag = M + N - 1
 
         D_ = torch.zeros((B, M + 2, N + 2), dtype=dtype, device=dev)
         D_[:, 1:M + 1, 1:N + 1] = D
-
-        R[:, :, -1] = -math.inf
-        R[:, -1, :] = -math.inf
-        R[:, -1, -1] = R[:, -2, -2]
-
         E = torch.zeros((B, M + 2, N + 2), dtype=dtype, device=dev)
-        E[:, -1, -1] = 1
 
         compute_softdtw_backward_cuda[B, T](
             cuda.as_cuda_array(D_), cuda.as_cuda_array(R), 1.0 / gamma.item(), bandwidth.item(),
@@ -73,13 +64,22 @@ class SoftDTWcuda(Function):
         E = E[:, 1:M + 1, 1:N + 1]
         return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None, None
 
+@cuda.jit
+def sakoe_chiba_condition(i, j, M, N, bandwidth):
+    """Approximate Sakoe-Chiba band for non-squared matrix.
+    """
+    i_sc, j_sc = i, j
+    if N > M: i_sc = i * N / M
+    if N < M: j_sc = j * M / N
+    return (abs(i_sc - j_sc) > bandwidth > 0)
+
 
 @cuda.jit
 def compute_softdtw_cuda(D, gamma, bandwidth, mn, n_passes, n_antidiag, R):
     inv_gamma = 1.0 / gamma
 
-    b = cuda.blockIdx.x
-    max_i, max_j = mn[b]
+    Bi = cuda.blockIdx.x
+    Mi, Ni = mn[Bi]
 
     thread_id = cuda.threadIdx.x
 
@@ -89,54 +89,50 @@ def compute_softdtw_cuda(D, gamma, bandwidth, mn, n_passes, n_antidiag, R):
             I = a - thread_id - p*MAX_THREADS_PER_BLOCK
             J = thread_id + p*MAX_THREADS_PER_BLOCK
 
-            if (I + J == a) and (I < max_i and J < max_j) and (I > -1):
+            if (I + J == a) and (I < Mi and J < Ni) and (I > -1):
                 i, j = I + 1, J + 1
 
-                # Sakoe-Chiba band for non-squared matrix
-                i_sc, j_sc = i, j
-                if max_j > max_i: i_sc = i * max_j / max_i
-                if max_j < max_i: j_sc = j * max_i / max_j
+                if sakoe_chiba_condition(i, j, Mi, Ni, bandwidth): continue
 
-                if not (abs(i_sc - j_sc) > bandwidth > 0):
-                    r0 = -R[b, i - 1, j - 1] * inv_gamma
-                    r1 = -R[b, i - 1, j] * inv_gamma
-                    r2 = -R[b, i, j - 1] * inv_gamma
-                    rmax = max(max(r0, r1), r2)
-                    rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
-                    softmin = -gamma * (math.log(rsum) + rmax)
-                    R[b, i, j] = D[b, i - 1, j - 1] + softmin
+                r0 = -R[Bi, i - 1, j - 1] * inv_gamma
+                r1 = -R[Bi, i - 1, j] * inv_gamma
+                r2 = -R[Bi, i, j - 1] * inv_gamma
+                rmax = max(max(r0, r1), r2)
+                rsum = math.exp(r0 - rmax) + math.exp(r1 - rmax) + math.exp(r2 - rmax)
+                softmin = -gamma * (math.log(rsum) + rmax)
+                R[Bi, i, j] = D[Bi, i - 1, j - 1] + softmin
 
         cuda.syncthreads()
 
 
 @cuda.jit
 def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, mn, n_passes, n_antidiag, E):
-    k = cuda.blockIdx.x
-    max_i, max_j = mn[k]
+    Bi = cuda.blockIdx.x
+    Mi, Ni = mn[Bi]
     thread_id = cuda.threadIdx.x
+
+    R[Bi, :, Ni+1] = -math.inf
+    R[Bi, Mi+1, :] = -math.inf
+    R[Bi, Mi+1, Ni+1] = R[Bi, Mi, Ni]
+    E[Bi, Mi+1, Ni+1] = 1
 
     for a in range(n_antidiag):
         rev_a = n_antidiag - a - 1
-
         for p in range(n_passes):
             I = rev_a - thread_id - p*MAX_THREADS_PER_BLOCK
             J = thread_id + p*MAX_THREADS_PER_BLOCK
 
-            if (I + J == rev_a) and (I < max_i and J < max_j) and (I > -1):
+            if (I + J == rev_a) and (I < Mi and J < Ni) and (I > -1):
                 i, j = I + 1, J + 1
 
-                if math.isinf(R[k, i, j]):
-                    R[k, i, j] = -math.inf
+                if math.isinf(R[Bi, i, j]):
+                    R[Bi, i, j] = -math.inf
 
-                # Sakoe-Chiba band for non-squared matrix
-                i_sc, j_sc = i, j
-                if max_j > max_i: i_sc = i * max_j / max_i
-                if max_j < max_i: j_sc = j * max_i / max_j
+                if sakoe_chiba_condition(i, j, Mi, Ni, bandwidth): continue
 
-                if not (abs(i_sc - j_sc) > bandwidth > 0):
-                    a = math.exp((R[k, i + 1, j] - R[k, i, j] - D[k, i + 1, j]) * inv_gamma)
-                    b = math.exp((R[k, i, j + 1] - R[k, i, j] - D[k, i, j + 1]) * inv_gamma)
-                    c = math.exp((R[k, i + 1, j + 1] - R[k, i, j] - D[k, i + 1, j + 1]) * inv_gamma)
-                    E[k, i, j] = E[k, i + 1, j] * a + E[k, i, j + 1] * b + E[k, i + 1, j + 1] * c
+                a = math.exp((R[Bi, i + 1, j] - R[Bi, i, j] - D[Bi, i + 1, j]) * inv_gamma)
+                b = math.exp((R[Bi, i, j + 1] - R[Bi, i, j] - D[Bi, i, j + 1]) * inv_gamma)
+                c = math.exp((R[Bi, i + 1, j + 1] - R[Bi, i, j] - D[Bi, i + 1, j + 1]) * inv_gamma)
+                E[Bi, i, j] = E[Bi, i + 1, j] * a + E[Bi, i, j + 1] * b + E[Bi, i + 1, j + 1] * c
 
         cuda.syncthreads()

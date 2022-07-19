@@ -63,8 +63,8 @@ def _prepare_input(x: Union[T, PS], y: Union[T, PS]) -> Tuple[T, T, T]:
     y, y_len = _unpack_sequence(y)
     xy_len = torch.stack([x_len, y_len]).T.to(x.device)
 
-    bx, lx, dx = x.shape
-    by, ly, dy = y.shape
+    bx, _, dx = x.shape
+    by, _, dy = y.shape
     assert (bx == by) and (dx == dy)
 
     return x, y, xy_len
