@@ -2,6 +2,8 @@
 """Torch implementation of the Soft-DTW algorithm. Include separate modules for
 CPU and GPU computation and a dedicated module for distance functions.
 """
+__version__ = '0.0.5'
+
 import torch
 import torch.nn.utils.rnn as rnn
 from typing import Callable, Union, Tuple
