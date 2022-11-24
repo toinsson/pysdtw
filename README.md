@@ -5,7 +5,7 @@ Torch implementation of the [Soft-DTW algorithm](https://github.com/mblondel/sof
 This repository started as a fork from this [project](https://github.com/Maghoumi/pytorch-softdtw-cuda), but now exists as a stand-alone to include several improvements:
 - availability on [pypi](https://pypi.org/project/pysdtw/)
 - code organisation as a package
-- improved API
+- improved API with type declaration
 - support for time series of arbitrary lengths on CUDA
 - support for packed sequences
 - fixes for Sakoe-Ichiba bands
