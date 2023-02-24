@@ -50,3 +50,7 @@ loss.backward()
 ```
 
 You can also have a look at the code in the tests directory. Different test suites ensure that [pysdtw](https://github.com/toinsson/pysdtw/) behaves similarly to [pytorch-softdtw-cuda](https://github.com/Maghoumi/pytorch-softdtw-cuda) by Maghoumi and [soft-dtw](https://github.com/mblondel/soft-dtw) by Blondel. The tests also include some comparative performance measurements. Run the tests with `python -m unittests` from the root.
+
+# Acknowledgements
+
+Supported by the ELEMENT project (ANR-18-CE33-0002) and the ARCOL project (ANR-19-CE33-0001) from the French National Research Agency
